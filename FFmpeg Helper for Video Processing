@@ -1,0 +1,136 @@
+class FFmpegHelper @Inject constructor(
+    private val context: Context,
+    private val fileHelper: FileHelper
+) {
+    
+    suspend fun trimVideo(inputPath: String, startMs: Long, endMs: Long): String {
+        return withContext(Dispatchers.IO) {
+            val outputPath = fileHelper.createTempVideoFile().path
+            
+            val startTime = millisecondsToTimeString(startMs)
+            val duration = millisecondsToTimeString(endMs - startMs)
+            
+            val cmd = arrayOf(
+                "-y",
+                "-i", inputPath,
+                "-ss", startTime,
+                "-t", duration,
+                "-c", "copy",
+                outputPath
+            )
+            
+            executeFFmpegCommand(cmd, outputPath)
+        }
+    }
+    
+    suspend fun applyFilter(inputPath: String, filter: VideoFilter): String {
+        return withContext(Dispatchers.IO) {
+            val outputPath = fileHelper.createTempVideoFile().path
+            val filterCommand = when (filter) {
+                VideoFilter.GRAYSCALE -> "colorchannelmixer=.3:.4:.3:0:.3:.4:.3:0:.3:.4:.3"
+                VideoFilter.SEPIA -> "colorchannelmixer=.393:.769:.189:.349:.686:.168:.272:.534:.131"
+                VideoFilter.INVERT -> "lutrgb=r=negval:g=negval:b=negval"
+                VideoFilter.VIGNETTE -> "vignette=PI/4"
+                VideoFilter.BLUR -> "boxblur=2:1"
+            }
+            
+            val cmd = arrayOf(
+                "-y",
+                "-i", inputPath,
+                "-vf", filterCommand,
+                "-c:a", "copy",
+                outputPath
+            )
+            
+            executeFFmpegCommand(cmd, outputPath)
+        }
+    }
+    
+    suspend fun mergeVideos(videoPaths: List<String>): String {
+        return withContext(Dispatchers.IO) {
+            val outputPath = fileHelper.createTempVideoFile().path
+            val listFile = fileHelper.createConcatListFile(videoPaths)
+            
+            val cmd = arrayOf(
+                "-y",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", listFile.path,
+                "-c", "copy",
+                outputPath
+            )
+            
+            executeFFmpegCommand(cmd, outputPath)
+        }
+    }
+    
+    suspend fun addAudioToVideo(videoPath: String, audioPath: String): String {
+        return withContext(Dispatchers.IO) {
+            val outputPath = fileHelper.createTempVideoFile().path
+            
+            val cmd = arrayOf(
+                "-y",
+                "-i", videoPath,
+                "-i", audioPath,
+                "-c:v", "copy",
+                "-map", "0:v:0",
+                "-map", "1:a:0",
+                "-shortest",
+                outputPath
+            )
+            
+            executeFFmpegCommand(cmd, outputPath)
+        }
+    }
+    
+    suspend fun adjustSpeed(inputPath: String, speed: Float): String {
+        return withContext(Dispatchers.IO) {
+            val outputPath = fileHelper.createTempVideoFile().path
+            val videoSpeed = 1 / speed
+            val audioSpeed = speed
+            
+            val cmd = arrayOf(
+                "-y",
+                "-i", inputPath,
+                "-filter_complex",
+                "[0:v]setpts=$videoSpeed*PTS[v];[0:a]atempo=$audioSpeed[a]",
+                "-map", "[v]",
+                "-map", "[a]",
+                outputPath
+            )
+            
+            executeFFmpegCommand(cmd, outputPath)
+        }
+    }
+    
+    private suspend fun executeFFmpegCommand(cmd: Array<String>, outputPath: String): String {
+        return suspendCoroutine { continuation ->
+            FFmpeg.executeAsync(cmd) { executionId, returnCode ->
+                if (returnCode == RETURN_CODE_SUCCESS) {
+                    continuation.resume(outputPath)
+                } else {
+                    continuation.resumeWithException(
+                        RuntimeException("FFmpeg command failed with return code $returnCode")
+                    )
+                }
+            }
+        }
+    }
+    
+    private fun millisecondsToTimeString(milliseconds: Long): String {
+        val seconds = milliseconds / 1000
+        val minutes = seconds / 60
+        val hours = minutes / 60
+        
+        return String.format("%02d:%02d:%02d.%03d", 
+            hours % 24, 
+            minutes % 60, 
+            seconds % 60, 
+            milliseconds % 1000
+        )
+    }
+    
+    companion object {
+        private const val RETURN_CODE_SUCCESS = 0
+    }
+}
