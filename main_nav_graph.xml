@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main_nav_graph"
+    app:startDestination="@id/homeFragment">
+    
+    <fragment
+        android:id="@+id/homeFragment"
+        android:name="com.example.videoeditor.presentation.features.home.HomeFragment"
+        android:label="Home"
+        tools:layout="@layout/fragment_home">
+        <action
+            android:id="@+id/action_homeFragment_to_videoEditorFragment"
+            app:destination="@id/videoEditorFragment" />
+    </fragment>
+    
+    <fragment
+        android:id="@+id/videoEditorFragment"
+        android:name="com.example.videoeditor.presentation.features.editor.VideoEditorFragment"
+        android:label="Editor"
+        tools:layout="@layout/fragment_video_editor">
+        <action
+            android:id="@+id/action_videoEditorFragment_to_exportFragment"
+            app:destination="@id/exportFragment">
+            <argument
+                android:name="videoPath"
+                app:argType="string" />
+            <argument
+                android:name="quality"
+                app:argType="com.example.videoeditor.presentation.features.export.ExportViewModel$ExportQuality" />
+        </action>
+    </fragment>
+    
+    <fragment
+        android:id="@+id/exportFragment"
+        android:name="com.example.videoeditor.presentation.features.export.ExportFragment"
+        android:label="Export"
+        tools:layout="@layout/fragment_export">
+        <argument
+            android:name="videoPath"
+            app:argType="string" />
+        <argument
+            android:name="quality"
+            app:argType="com.example.videoeditor.presentation.features.export.ExportViewModel$ExportQuality" />
+    </fragment>
+    
+</navigation>
