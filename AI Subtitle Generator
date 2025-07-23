@@ -1,0 +1,104 @@
+class SubtitleGenerator @Inject constructor(
+    private val context: Context,
+    private val speechRecognizer: SpeechRecognizer,
+    private val fileHelper: FileHelper
+) {
+    
+    suspend fun generateSubtitles(videoPath: String): List<Subtitle> {
+        return withContext(Dispatchers.IO) {
+            // Step 1: Extract audio from video
+            val audioPath = extractAudio(videoPath)
+            
+            // Step 2: Convert audio to text
+            val speechResult = recognizeSpeech(audioPath)
+            
+            // Step 3: Process speech result into timed subtitles
+            processSpeechResult(speechResult)
+        }
+    }
+    
+    private suspend fun extractAudio(videoPath: String): String {
+        return withContext(Dispatchers.IO) {
+            val audioPath = fileHelper.createTempAudioFile().path
+            
+            val cmd = arrayOf(
+                "-y",
+                "-i", videoPath,
+                "-vn",
+                "-acodec", "pcm_s16le",
+                "-ar", "16000",
+                "-ac", "1",
+                audioPath
+            )
+            
+            FFmpeg.execute(cmd)
+            audioPath
+        }
+    }
+    
+    private suspend fun recognizeSpeech(audioPath: String): SpeechRecognitionResult {
+        return suspendCoroutine { continuation ->
+            val recognizerIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_AUDIO, audioPath)
+            }
+            
+            speechRecognizer.startListening(recognizerIntent)
+            
+            val recognitionListener = object : RecognitionListener {
+                override fun onResults(results: Bundle?) {
+                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    val confidenceScores = results?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
+                    
+                    if (matches != null && confidenceScores != null) {
+                        val speechResults = matches.zip(confidenceScores.toList()).map {
+                            SpeechRecognitionResult.Alternative(it.first, it.second)
+                        }
+                        continuation.resume(SpeechRecognitionResult(speechResults))
+                    } else {
+                        continuation.resumeWithException(RuntimeException("No speech recognition results"))
+                    }
+                }
+                
+                override fun onError(error: Int) {
+                    continuation.resumeWithException(RuntimeException("Speech recognition error: $error"))
+                }
+                
+                // Other required empty methods
+                override fun onReadyForSpeech(params: Bundle?) {}
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {}
+                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            }
+            
+            speechRecognizer.setRecognitionListener(recognitionListener)
+        }
+    }
+    
+    private fun processSpeechResult(result: SpeechRecognitionResult): List<Subtitle> {
+        // Simple implementation - in real app you'd use timestamps from recognition
+        val alternatives = result.alternatives
+        if (alternatives.isEmpty()) return emptyList()
+        
+        val bestMatch = alternatives.maxByOrNull { it.confidence }?.text ?: return emptyList()
+        
+        // Split into sentences and assign dummy timestamps
+        val sentences = bestMatch.split("(?<=[.!?])\\s+".toRegex())
+        
+        return sentences.mapIndexed { index, text ->
+            Subtitle(
+                id = index,
+                text = text,
+                startTime = index * 2000L, // 2 seconds per sentence
+                endTime = (index + 1) * 2000L
+            )
+        }
+    }
+    
+    data class SpeechRecognitionResult(val alternatives: List<Alternative>) {
+        data class Alternative(val text: String, val confidence: Float)
+    }
+}
